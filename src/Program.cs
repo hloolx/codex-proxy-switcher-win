@@ -99,7 +99,8 @@ internal sealed class LauncherForm : Form
             SurfaceColor = Color.FromArgb(30, 42, 61),
             AccentColor = Color.FromArgb(82, 211, 190)
         };
-        changePortButton.Click += (_, _) => ChangePort();
+        changePortButton.Text = "Settings";
+        changePortButton.Click += (_, _) => ChangeSettings();
 
         var openConfigButton = new GlassButton
         {
@@ -207,7 +208,7 @@ internal sealed class LauncherForm : Form
     {
         proxyText = configStore.Settings.ProxyUrl;
 
-        var codexPath = CodexFinder.TryFindCodexExePath();
+        var codexPath = CodexFinder.TryFindCodexExePath(configStore.Settings.CodexExePath);
         if (string.IsNullOrWhiteSpace(codexPath))
         {
             codexStateText = "Codex";
@@ -223,15 +224,16 @@ internal sealed class LauncherForm : Form
         Invalidate();
     }
 
-    private void ChangePort()
+    private void ChangeSettings()
     {
-        using var setupForm = new ProxySetupForm(configStore.Settings.ProxyPort);
+        using var setupForm = new ProxySetupForm(configStore.Settings.ProxyPort, configStore.Settings.CodexExePath);
         if (setupForm.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
 
         configStore.Settings.ProxyPort = setupForm.ProxyPort;
+        configStore.Settings.CodexExePath = setupForm.CodexExePath;
         configStore.Save();
         RefreshStatus();
     }
@@ -240,7 +242,7 @@ internal sealed class LauncherForm : Form
     {
         try
         {
-            var codexInstall = CodexFinder.FindCodexInstall();
+            var codexInstall = CodexFinder.FindCodexInstall(configStore.Settings.CodexExePath);
             StopExistingCodex();
             StartCodex(codexInstall, mode, configStore.Settings.ProxyUrl);
             Close();
@@ -730,10 +732,12 @@ internal static class DrawingHelpers
 internal sealed class ProxySetupForm : Form
 {
     private readonly TextBox portBox;
+    private readonly TextBox codexPathBox;
 
     public int ProxyPort { get; private set; }
+    public string CodexExePath { get; private set; } = "";
 
-    public ProxySetupForm(int suggestedPort)
+    public ProxySetupForm(int suggestedPort, string? suggestedCodexExePath)
     {
         Text = "配置代理端口";
         AutoScaleMode = AutoScaleMode.None;
@@ -741,7 +745,7 @@ internal sealed class ProxySetupForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(420, 190);
+        ClientSize = new Size(520, 245);
         Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         BackColor = Color.FromArgb(20, 24, 40);
         DoubleBuffered = true;
@@ -756,7 +760,7 @@ internal sealed class ProxySetupForm : Form
             BackColor = Color.Transparent,
             TextAlign = ContentAlignment.MiddleCenter,
             Location = new Point(24, 18),
-            Size = new Size(372, 28)
+            Size = new Size(472, 28)
         };
 
         var hint = new Label
@@ -767,14 +771,18 @@ internal sealed class ProxySetupForm : Form
             BackColor = Color.Transparent,
             TextAlign = ContentAlignment.MiddleCenter,
             Location = new Point(24, 52),
-            Size = new Size(372, 38)
+            Size = new Size(472, 38)
         };
+
+        Text = "Proxy and Codex settings";
+        title.Text = "Configure proxy port and Codex.exe path";
+        hint.Text = "Leave Codex.exe empty to auto-detect the Windows Store app.";
 
         var portLabel = new Label
         {
             Text = "端口号",
             AutoSize = false,
-            Location = new Point(90, 105),
+            Location = new Point(70, 105),
             Size = new Size(70, 24),
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = Color.FromArgb(205, 218, 238),
@@ -784,7 +792,7 @@ internal sealed class ProxySetupForm : Form
         portBox = new TextBox
         {
             Text = suggestedPort.ToString(),
-            Location = new Point(166, 103),
+            Location = new Point(146, 103),
             Size = new Size(160, 24),
             BorderStyle = BorderStyle.FixedSingle,
             BackColor = Color.FromArgb(244, 249, 255),
@@ -792,11 +800,42 @@ internal sealed class ProxySetupForm : Form
         };
         portBox.SelectAll();
 
+        var codexPathLabel = new Label
+        {
+            Text = "Codex.exe",
+            AutoSize = false,
+            Location = new Point(70, 139),
+            Size = new Size(70, 24),
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Color.FromArgb(205, 218, 238),
+            BackColor = Color.Transparent
+        };
+
+        codexPathBox = new TextBox
+        {
+            Text = suggestedCodexExePath ?? "",
+            Location = new Point(146, 137),
+            Size = new Size(260, 24),
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.FromArgb(244, 249, 255),
+            ForeColor = Color.FromArgb(20, 24, 40)
+        };
+
+        var browseButton = new GlassButton
+        {
+            Text = "...",
+            DialogResult = DialogResult.None,
+            Location = new Point(416, 136),
+            Size = new Size(42, 28),
+            AccentColor = Color.FromArgb(160, 188, 255)
+        };
+        browseButton.Click += (_, _) => BrowseCodexPath();
+
         var okButton = new GlassButton
         {
             Text = "保存",
             DialogResult = DialogResult.None,
-            Location = new Point(116, 145),
+            Location = new Point(156, 195),
             Size = new Size(90, 30),
             AccentColor = Color.FromArgb(115, 238, 189)
         };
@@ -806,7 +845,7 @@ internal sealed class ProxySetupForm : Form
         {
             Text = "取消",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(220, 145),
+            Location = new Point(260, 195),
             Size = new Size(90, 30),
             AccentColor = Color.FromArgb(160, 188, 255)
         };
@@ -818,6 +857,9 @@ internal sealed class ProxySetupForm : Form
         Controls.Add(hint);
         Controls.Add(portLabel);
         Controls.Add(portBox);
+        Controls.Add(codexPathLabel);
+        Controls.Add(codexPathBox);
+        Controls.Add(browseButton);
         Controls.Add(okButton);
         Controls.Add(cancelButton);
     }
@@ -834,6 +876,23 @@ internal sealed class ProxySetupForm : Form
         e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
     }
 
+    private void BrowseCodexPath()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Select Codex.exe",
+            Filter = "Codex executable (Codex.exe)|Codex.exe|Executable files (*.exe)|*.exe|All files (*.*)|*.*",
+            FileName = "Codex.exe",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            codexPathBox.Text = dialog.FileName;
+        }
+    }
+
     private void SavePort()
     {
         if (!int.TryParse(portBox.Text.Trim(), out var port) || port < 1 || port > 65535)
@@ -844,7 +903,28 @@ internal sealed class ProxySetupForm : Form
             return;
         }
 
+        var codexExePath = codexPathBox.Text.Trim().Trim('"');
+        if (!string.IsNullOrWhiteSpace(codexExePath))
+        {
+            if (!File.Exists(codexExePath))
+            {
+                MessageBox.Show(this, "Codex.exe path does not exist.", "Invalid Codex path", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                codexPathBox.Focus();
+                codexPathBox.SelectAll();
+                return;
+            }
+
+            if (!string.Equals(Path.GetFileName(codexExePath), "Codex.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(this, "Please select Codex.exe.", "Invalid Codex path", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                codexPathBox.Focus();
+                codexPathBox.SelectAll();
+                return;
+            }
+        }
+
         ProxyPort = port;
+        CodexExePath = codexExePath;
         DialogResult = DialogResult.OK;
         Close();
     }
@@ -885,7 +965,7 @@ internal sealed class LauncherConfigStore
         var settings = Load(settingsPath);
         if (settings is null)
         {
-            using var setupForm = new ProxySetupForm(ReadSuggestedPort());
+            using var setupForm = new ProxySetupForm(ReadSuggestedPort(), "");
             if (setupForm.ShowDialog() != DialogResult.OK)
             {
                 return null;
@@ -893,7 +973,8 @@ internal sealed class LauncherConfigStore
 
             settings = new LauncherSettings
             {
-                ProxyPort = setupForm.ProxyPort
+                ProxyPort = setupForm.ProxyPort,
+                CodexExePath = setupForm.CodexExePath
             };
             Save(settingsPath, settings);
             PromptForDesktopShortcut(settingsPath, settings);
@@ -1042,6 +1123,8 @@ internal sealed class LauncherSettings
     public string ProxyHost { get; set; } = "127.0.0.1";
 
     public int ProxyPort { get; set; } = 7897;
+
+    public string CodexExePath { get; set; } = "";
 
     public bool DesktopShortcutPrompted { get; set; }
 
@@ -1272,30 +1355,64 @@ internal static class DesktopShortcutManager
 
 internal static class CodexFinder
 {
-    public static CodexInstallInfo FindCodexInstall()
+    public static CodexInstallInfo FindCodexInstall(string? configuredCodexExePath)
     {
-        var codexInstall = TryFindCodexInstall();
+        var codexInstall = TryFindCodexInstall(configuredCodexExePath);
         if (codexInstall is not null)
         {
             return codexInstall;
         }
 
-        throw new InvalidOperationException("没有找到 Windows 商店版 Codex。请确认这台电脑已经安装 Codex。");
+        throw new InvalidOperationException("没有找到 Codex。请在 Settings 中选择 Codex.exe，或确认这台电脑已经安装 Windows 商店版 Codex。");
     }
 
-    public static string FindCodexExePath()
+    public static string FindCodexExePath(string? configuredCodexExePath)
     {
-        return FindCodexInstall().ExePath;
+        return FindCodexInstall(configuredCodexExePath).ExePath;
     }
 
-    public static string? TryFindCodexExePath()
+    public static string? TryFindCodexExePath(string? configuredCodexExePath)
     {
-        return TryFindCodexInstall()?.ExePath;
+        try
+        {
+            return TryFindCodexInstall(configuredCodexExePath)?.ExePath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
-    public static CodexInstallInfo? TryFindCodexInstall()
+    public static CodexInstallInfo? TryFindCodexInstall(string? configuredCodexExePath)
     {
+        var configuredInstall = TryFindCodexViaConfiguredPath(configuredCodexExePath);
+        if (configuredInstall is not null)
+        {
+            return configuredInstall;
+        }
+
         return FindCodexViaAppxPackage() ?? FindCodexViaWindowsApps();
+    }
+
+    private static CodexInstallInfo? TryFindCodexViaConfiguredPath(string? configuredCodexExePath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredCodexExePath))
+        {
+            return null;
+        }
+
+        var exePath = configuredCodexExePath.Trim().Trim('"');
+        if (!File.Exists(exePath))
+        {
+            throw new InvalidOperationException("Configured Codex.exe path does not exist: " + exePath);
+        }
+
+        if (!string.Equals(Path.GetFileName(exePath), "Codex.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Configured Codex path must point to Codex.exe: " + exePath);
+        }
+
+        return new CodexInstallInfo(exePath, null);
     }
 
     private static CodexInstallInfo? FindCodexViaAppxPackage()

@@ -4,6 +4,8 @@ param(
 
     [string]$ProxyUrl = "",
 
+    [string]$CodexExePath = "",
+
     [string]$NoProxy = "localhost,127.0.0.1,::1",
 
     [switch]$KeepExisting
@@ -30,7 +32,39 @@ function Get-ConfiguredProxyUrl {
     return "http://127.0.0.1:7897"
 }
 
+function Get-ConfiguredCodexExePath {
+    if (-not [string]::IsNullOrWhiteSpace($CodexExePath)) {
+        return $CodexExePath.Trim().Trim('"')
+    }
+
+    $codexPathFile = Join-Path $PSScriptRoot "codex-path.txt"
+    if (Test-Path -LiteralPath $codexPathFile) {
+        $configured = Get-Content -LiteralPath $codexPathFile -ErrorAction Stop |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -First 1
+
+        if (-not [string]::IsNullOrWhiteSpace($configured)) {
+            return $configured.Trim().Trim('"')
+        }
+    }
+
+    return ""
+}
+
 function Get-CodexExePath {
+    $configuredCodexExePath = Get-ConfiguredCodexExePath
+    if (-not [string]::IsNullOrWhiteSpace($configuredCodexExePath)) {
+        if (-not (Test-Path -LiteralPath $configuredCodexExePath -PathType Leaf)) {
+            throw "Configured Codex.exe path does not exist: $configuredCodexExePath"
+        }
+
+        if ([System.IO.Path]::GetFileName($configuredCodexExePath) -ine "Codex.exe") {
+            throw "Configured Codex path must point to Codex.exe: $configuredCodexExePath"
+        }
+
+        return $configuredCodexExePath
+    }
+
     $appxPackage = Get-AppxPackage -Name "OpenAI.Codex" -ErrorAction SilentlyContinue |
         Sort-Object Version -Descending |
         Select-Object -First 1

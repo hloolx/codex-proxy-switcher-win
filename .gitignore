@@ -12,3 +12,6 @@ release-v*/
 !release/
 !release/Codex-Proxy-Switcher.exe
 .vs/
+.dotnet/
+.dotnet-home/
+.nuget/
