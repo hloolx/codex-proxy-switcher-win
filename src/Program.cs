@@ -77,7 +77,7 @@ internal sealed class LauncherForm : Form
             AccentColor = Color.FromArgb(91, 141, 239),
             AccentColor2 = Color.FromArgb(59, 196, 221)
         };
-        nativeButton.Click += (_, _) => Launch("Native");
+        nativeButton.Click += async (_, _) => await LaunchAsync("Native");
 
         var vpnButton = new ModeButton
         {
@@ -89,7 +89,7 @@ internal sealed class LauncherForm : Form
             AccentColor = Color.FromArgb(64, 216, 172),
             AccentColor2 = Color.FromArgb(88, 145, 242)
         };
-        vpnButton.Click += (_, _) => Launch("Vpn");
+        vpnButton.Click += async (_, _) => await LaunchAsync("Vpn");
 
         var changePortButton = new GlassButton
         {
@@ -238,19 +238,48 @@ internal sealed class LauncherForm : Form
         RefreshStatus();
     }
 
-    private void Launch(string mode)
+    private async Task LaunchAsync(string mode)
     {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        var configuredCodexExePath = configStore.Settings.CodexExePath;
+        var proxyUrl = configStore.Settings.ProxyUrl;
+
         try
         {
-            var codexInstall = CodexFinder.FindCodexInstall(configStore.Settings.CodexExePath);
-            StopExistingCodex();
-            StartCodex(codexInstall, mode, configStore.Settings.ProxyUrl);
+            Enabled = false;
+            UseWaitCursor = true;
+            codexStateText = "启动中";
+            codexStateColor = Color.FromArgb(153, 197, 235);
+            codexPathText = string.Equals(mode, "Vpn", StringComparison.OrdinalIgnoreCase)
+                ? "正在使用代理启动 Codex..."
+                : "正在原生启动 Codex...";
+            Invalidate();
+
+            await Task.Run(() =>
+            {
+                var codexInstall = CodexFinder.FindCodexInstall(configuredCodexExePath);
+                StopExistingCodex();
+                StartCodex(codexInstall, mode, proxyUrl);
+            });
+
             Close();
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             RefreshStatus();
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                UseWaitCursor = false;
+                Enabled = true;
+            }
         }
     }
 
