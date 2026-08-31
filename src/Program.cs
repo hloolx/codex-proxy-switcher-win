@@ -45,6 +45,8 @@ internal sealed class LauncherForm : Form
     };
 
     private readonly LauncherConfigStore configStore;
+    private readonly Control[] launchControls;
+    private bool launchInProgress;
     private string proxyText = "";
     private string codexPathText = "";
     private string codexStateText = "";
@@ -146,6 +148,8 @@ internal sealed class LauncherForm : Form
         Controls.Add(openConfigButton);
         Controls.Add(authorLink);
 
+        launchControls = new Control[] { nativeButton, vpnButton, changePortButton };
+
         RefreshStatus();
     }
 
@@ -240,7 +244,7 @@ internal sealed class LauncherForm : Form
 
     private async Task LaunchAsync(string mode)
     {
-        if (!Enabled)
+        if (launchInProgress)
         {
             return;
         }
@@ -250,21 +254,22 @@ internal sealed class LauncherForm : Form
 
         try
         {
-            Enabled = false;
+            launchInProgress = true;
+            SetLaunchControlsEnabled(false);
             UseWaitCursor = true;
-            codexStateText = "启动中";
-            codexStateColor = Color.FromArgb(153, 197, 235);
-            codexPathText = string.Equals(mode, "Vpn", StringComparison.OrdinalIgnoreCase)
-                ? "正在使用代理启动 Codex..."
-                : "正在原生启动 Codex...";
-            Invalidate();
 
-            await Task.Run(() =>
-            {
-                var codexInstall = CodexFinder.FindCodexInstall(configuredCodexExePath);
-                StopExistingCodex();
-                StartCodex(codexInstall, mode, proxyUrl);
-            });
+            SetLaunchStatus("步骤 1/3", "正在查找 Codex 安装信息...");
+            var codexInstall = await Task.Run(() => CodexFinder.FindCodexInstall(configuredCodexExePath));
+
+            SetLaunchStatus("步骤 2/3", "正在关闭已运行的 Codex...");
+            await Task.Run(StopExistingCodex);
+
+            SetLaunchStatus(
+                "步骤 3/3",
+                string.Equals(mode, "Vpn", StringComparison.OrdinalIgnoreCase)
+                    ? $"正在临时应用代理 {proxyUrl} 并启动 Codex..."
+                    : "正在清理代理环境并原生启动 Codex...");
+            await Task.Run(() => StartCodex(codexInstall, mode, proxyUrl));
 
             Close();
         }
@@ -278,8 +283,25 @@ internal sealed class LauncherForm : Form
             if (!IsDisposed)
             {
                 UseWaitCursor = false;
-                Enabled = true;
+                SetLaunchControlsEnabled(true);
+                launchInProgress = false;
             }
+        }
+    }
+
+    private void SetLaunchStatus(string state, string detail)
+    {
+        codexStateText = state;
+        codexStateColor = Color.FromArgb(153, 197, 235);
+        codexPathText = detail;
+        Invalidate();
+    }
+
+    private void SetLaunchControlsEnabled(bool enabled)
+    {
+        foreach (var control in launchControls)
+        {
+            control.Enabled = enabled;
         }
     }
 
