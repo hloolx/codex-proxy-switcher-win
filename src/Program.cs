@@ -45,6 +45,8 @@ internal sealed class LauncherForm : Form
     };
 
     private readonly LauncherConfigStore configStore;
+    private readonly Control[] launchControls;
+    private bool launchInProgress;
     private string proxyText = "";
     private string codexPathText = "";
     private string codexStateText = "";
@@ -77,7 +79,7 @@ internal sealed class LauncherForm : Form
             AccentColor = Color.FromArgb(91, 141, 239),
             AccentColor2 = Color.FromArgb(59, 196, 221)
         };
-        nativeButton.Click += (_, _) => Launch("Native");
+        nativeButton.Click += async (_, _) => await LaunchAsync("Native");
 
         var vpnButton = new ModeButton
         {
@@ -89,7 +91,7 @@ internal sealed class LauncherForm : Form
             AccentColor = Color.FromArgb(64, 216, 172),
             AccentColor2 = Color.FromArgb(88, 145, 242)
         };
-        vpnButton.Click += (_, _) => Launch("Vpn");
+        vpnButton.Click += async (_, _) => await LaunchAsync("Vpn");
 
         var changePortButton = new GlassButton
         {
@@ -145,6 +147,8 @@ internal sealed class LauncherForm : Form
         Controls.Add(changePortButton);
         Controls.Add(openConfigButton);
         Controls.Add(authorLink);
+
+        launchControls = new Control[] { nativeButton, vpnButton, changePortButton };
 
         RefreshStatus();
     }
@@ -238,19 +242,66 @@ internal sealed class LauncherForm : Form
         RefreshStatus();
     }
 
-    private void Launch(string mode)
+    private async Task LaunchAsync(string mode)
     {
+        if (launchInProgress)
+        {
+            return;
+        }
+
+        var configuredCodexExePath = configStore.Settings.CodexExePath;
+        var proxyUrl = configStore.Settings.ProxyUrl;
+
         try
         {
-            var codexInstall = CodexFinder.FindCodexInstall(configStore.Settings.CodexExePath);
-            StopExistingCodex();
-            StartCodex(codexInstall, mode, configStore.Settings.ProxyUrl);
+            launchInProgress = true;
+            SetLaunchControlsEnabled(false);
+            UseWaitCursor = true;
+
+            SetLaunchStatus("步骤 1/3", "正在查找 Codex 安装信息...");
+            var codexInstall = await Task.Run(() => CodexFinder.FindCodexInstall(configuredCodexExePath));
+
+            SetLaunchStatus("步骤 2/3", "正在关闭已运行的 Codex...");
+            await Task.Run(StopExistingCodex);
+
+            SetLaunchStatus(
+                "步骤 3/3",
+                string.Equals(mode, "Vpn", StringComparison.OrdinalIgnoreCase)
+                    ? $"正在临时应用代理 {proxyUrl} 并启动 Codex..."
+                    : "正在清理代理环境并原生启动 Codex...");
+            await Task.Run(() => StartCodex(codexInstall, mode, proxyUrl));
+
             Close();
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "启动失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             RefreshStatus();
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                UseWaitCursor = false;
+                SetLaunchControlsEnabled(true);
+                launchInProgress = false;
+            }
+        }
+    }
+
+    private void SetLaunchStatus(string state, string detail)
+    {
+        codexStateText = state;
+        codexStateColor = Color.FromArgb(153, 197, 235);
+        codexPathText = detail;
+        Invalidate();
+    }
+
+    private void SetLaunchControlsEnabled(bool enabled)
+    {
+        foreach (var control in launchControls)
+        {
+            control.Enabled = enabled;
         }
     }
 
